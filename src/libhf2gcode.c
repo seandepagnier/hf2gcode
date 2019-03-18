@@ -297,7 +297,8 @@ int get_gcode_line (
       return g_line++;
       case 7: snprintf(buf, buf_len, "G17%s",_verbose? " ( X-Y plane )":"");
       return g_line++;
-      case 8: snprintf(buf, buf_len, "M3 S10000");
+    case 8: snprintf(buf, buf_len, "M3 S10000");
+        //snprintf(buf, buf_len, "G28 (Home all axes)");
       return g_line++;
       case 9:
         if(_verbose)
@@ -313,26 +314,19 @@ int get_gcode_line (
           return g_line++;
         }
         else
-        g_line++;
+            return g_line++;
       case 10:
         if(_verbose)
-        {
           snprintf(buf, buf_len, "( scale=%f, feed=%f, precision=%d )",_scale, _feed, _precision);
-          return g_line++;
-        }
-        else g_line++;
+        return g_line++;
       case 11:
-#ifndef FIXED_PRECISION
-        snprintf(buf, buf_len, "F%.*f", _precision, _feed);
-#else
-        snprintf(buf, buf_len, "F%.2f", _feed);
-#endif
+          snprintf(buf, buf_len, "(Reserved line)");
         return g_line++;
       case 12:
 #ifndef FIXED_PRECISION
-        snprintf(buf, buf_len, "G0 Z%.*f%s", _precision, _Z_up, _verbose? " ( Pen-Up at start)":"");
+          snprintf(buf, buf_len, "G0 Z%.*f F%.*f%s", _precision, _Z_up, _precision, _feed, _verbose? " ( Pen-Up at start)":"");
 #else
-        snprintf(buf, buf_len, "G0 Z%.2f%s", _Z_up, _verbose? " ( Pen-Up at start)":"");
+          snprintf(buf, buf_len, "G0 Z%.2f F%.2f%s", _Z_up, _feed, _verbose? " ( Pen-Up at start)":"");
 #endif
         _Z = _Z_up;
         return g_line++;
@@ -355,7 +349,7 @@ int get_gcode_line (
       if(c=='\n')
       {
           x_glyph=_X0;
-          y_glyph-=_yinc;
+          y_glyph-=_yinc*_scale*2;
           snprintf(buf, buf_len, "( Linefeed )");
           char_index++;
           return g_line++;
@@ -374,9 +368,27 @@ int get_gcode_line (
         glyph_ptr=current_glyph;
         left_margin = *(glyph_ptr++)-'R';
         right_margin = *(glyph_ptr++)-'R';
+        char x=*(glyph_ptr)-'R';
+        char y=*(glyph_ptr+1)-'R';
+        double gx = x_glyph+(x-left_margin)*_scale;
+        double gy = y_glyph-y*_scale;
 
-        if (_verbose)
-          snprintf(buf, buf_len, ";%c = %s",c, glyph_ptr);
+#ifdef CURSIVE
+        if(c==' ' || c=='/' || abs(_X - gx) > 10*_scale || abs(_Y - gy) > 10*_scale)
+#endif
+        {
+            _Z = _Z_up;
+#ifndef FIXED_PRECISION
+            snprintf(buf, buf_len, "G0 Z%.*f%s %f %f %f %f", _precision, _Z, _verbose? " ( Pen-Up, EOG )":"", gx, gy, _X, _Y);
+#else
+            snprintf(buf, buf_len, "G0 Z%.2f%s", _Z, _verbose? " ( Pen-Up, EOG )":"");
+#endif
+            pen_state=Up;
+            return g_line++;
+        }
+
+//        if (_verbose)
+                snprintf(buf, buf_len, ";%c = %s",c, glyph_ptr);
         //grbl hast problems with ;x comments and shows error "expected command letter"
         //else
         //  snprintf(buf, buf_len, ";%c",c);
@@ -390,14 +402,10 @@ int get_gcode_line (
 
         free(current_glyph);
         current_glyph=0;
-
         _Z = _Z_up;
-#ifndef FIXED_PRECISION
-        snprintf(buf, buf_len, "G0 Z%.*f%s", _precision, _Z, _verbose? " ( Pen-Up, EOG )":"");
-#else
-        snprintf(buf, buf_len, "G0 Z%.2f%s", _Z, _verbose? " ( Pen-Up, EOG )":"");
-#endif
-        pen_state=Up;
+
+        snprintf(buf, buf_len, "(Comment)");
+
         return g_line++;
       }
       char x=*(glyph_ptr)-'R';
@@ -459,8 +467,14 @@ int get_gcode_line (
       switch (footer_line++)
       {
         case 0: snprintf(buf, buf_len, "M5 %s",_verbose? "(stop the spindle)":"");
-        return g_line++;
-        case 1: snprintf(buf, buf_len, "M30 %s",_verbose? "(Program stop, rewind to beginning of program)":"");
+            return g_line++;
+       case 1: snprintf(buf, buf_len, "G0 Z%.3f %s",_Z_up, _verbose? "(raise pen)":"");
+            return g_line++;
+          case 2: snprintf(buf, buf_len, "G0 X0 Y0"); // return to 0
+            return g_line++;
+        case 3:
+            break;
+            snprintf(buf, buf_len, "M30 %s",_verbose? "(Program stop, rewind to beginning of program)":"");
 #ifdef AVR
         buf[0]=0;   //No M30 on AVR
 #endif
